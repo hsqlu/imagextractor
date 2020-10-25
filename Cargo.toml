@@ -1,0 +1,14 @@
+[package]
+name = "imagextractor"
+version = "0.1.0"
+authors = ["Qiannan Lyu <lvqiannan@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = "2.33.3"
+chrono = "0.4.19"
+serde = { version = "1.0.106", default-features = false, features = ["derive", "alloc"] }
+serde_json = "1.0.59"
+kamadak-exif = "0.5.2"
