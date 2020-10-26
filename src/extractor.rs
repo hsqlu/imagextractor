@@ -246,6 +246,24 @@ mod tests {
     }
 
     #[test]
+    fn extract_image_info() {
+        let expected_img_info = r#"{
+            "filename": "images/JAM19896.jpg",
+            "size": 953458,
+            "created_time": "2020-08-25T02:38:14.000000000Z",
+            "modified_time": "2020-08-14T00:04:05.000000000Z",
+            "orientation": "row 0 at top and column 0 at left",
+            "capture_time": "2019-07-26 13:25:33",
+            "camera_model": "Canon EOS 5D Mark IV",
+            "camera_serial": "025021000537"
+        }"#;
+
+        let expected_img: ImageInfo = serde_json::from_str(expected_img_info).unwrap();
+        let image_info = extract_img_info("images/JAM19896.jpg").unwrap();
+        assert_eq!(expected_img, image_info);
+    }
+
+    #[test]
     fn generate_json_filename() {
         let cases = vec![
             ("AB.jpeg", "AB.json"),

@@ -1,7 +1,7 @@
 extern crate test;
 
-use crate::extractor;
 use self::test::Bencher;
+use crate::extractor;
 
 #[bench]
 fn gen_filename(b: &mut Bencher) {
@@ -10,9 +10,14 @@ fn gen_filename(b: &mut Bencher) {
 
 #[bench]
 fn write_date(b: &mut Bencher) {
-    b.iter(|| extractor::write_to_file(
-        "This is for bench test of project imagextractor".parse().unwrap(), "/tmp/imagextractor_test.json".to_string()
-    ))
+    b.iter(|| {
+        extractor::write_to_file(
+            "This is for bench test of project imagextractor"
+                .parse()
+                .unwrap(),
+            "/tmp/imagextractor_test.json".to_string(),
+        )
+    })
 }
 
 #[bench]
