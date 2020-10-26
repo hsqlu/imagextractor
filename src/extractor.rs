@@ -1,28 +1,32 @@
+use crate::error::ImagextractorError;
 use chrono::{DateTime, SecondsFormat, TimeZone, Utc};
 use exif::In;
 use exif::Tag;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::os::macos::fs::MetadataExt;
-use std::time::{SystemTime, UNIX_EPOCH};
-use std::path::Path;
-use crate::error::ImagextractorError;
 use std::io::Write;
+use std::os::macos::fs::MetadataExt;
+use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone)]
 pub struct ImageInfo {
     filename: String,
     size: u64,
-    // #[serde(with = "date_time_format")]
-    // created_time: DateTime<Utc>,
-    // #[serde(with = "date_time_format")]
-    // modified_time: DateTime<Utc>,
     created_time: String,
     modified_time: String,
+    #[serde(skip_serializing_if = "is_empty")]
     orientation: String,
+    #[serde(skip_serializing_if = "is_empty")]
     capture_time: String,
+    #[serde(skip_serializing_if = "is_empty")]
     camera_model: String,
+    #[serde(skip_serializing_if = "is_empty")]
     camera_serial: String,
+}
+
+fn is_empty(field: &str) -> bool {
+    field.is_empty()
 }
 
 const TAGS: [Tag; 4] = [
@@ -32,7 +36,15 @@ const TAGS: [Tag; 4] = [
     Tag::BodySerialNumber,
 ];
 
-fn generate_output_file(path: &str) -> String {
+pub(crate) fn process(file_name: &str) -> Result<(), ImagextractorError> {
+    let image_info = extract_img_info(file_name).unwrap();
+    let data = serde_json::to_string_pretty(&image_info).unwrap();
+    let output_file = generate_output_file(file_name);
+    write_to_file(data, output_file)
+}
+
+// generate_output_file generates the json file name based on the input image file name.
+pub(crate) fn generate_output_file(path: &str) -> String {
     let index = path.rfind('.').unwrap();
     let (file_name, _) = path.split_at(index);
     let mut output_file = file_name.to_string();
@@ -40,47 +52,28 @@ fn generate_output_file(path: &str) -> String {
     output_file
 }
 
-pub fn extract_img_info(path: &str) {
+// extract_img_info extracts the file metadata information.
+pub(crate) fn extract_img_info(path: &str) -> Result<ImageInfo, ImagextractorError> {
     let file = File::open(path).unwrap();
-
-    let output_file = generate_output_file(path.clone());
 
     let mut image_info: ImageInfo = Default::default();
 
     let metadata = file.metadata().unwrap();
     let c_time = metadata.created().unwrap();
     let m_time = metadata.modified().unwrap();
-    let created_time = system_time_to_date_time(c_time);
-    let modified_time = system_time_to_date_time(m_time);
 
     image_info.filename = path.to_string();
-    image_info.created_time = created_time.to_rfc3339_opts(SecondsFormat::Nanos, true);
-    image_info.modified_time = modified_time.to_rfc3339_opts(SecondsFormat::Nanos, true);
+    image_info.created_time = system_to_string(c_time);
+    image_info.modified_time = system_to_string(m_time);
     image_info.size = metadata.st_size();
 
     let mut buf_reader = std::io::BufReader::new(&file);
     let exif_reader = exif::Reader::new();
     let exif = exif_reader.read_from_container(&mut buf_reader).unwrap();
 
-    // for f in exif.fields() {
-    //     println!(
-    //         "{} - {} - {}",
-    //         f.tag,
-    //         f.ifd_num,
-    //         f.display_value().with_unit(&exif)
-    //     );
-    // }
-
     for tag in TAGS.iter() {
         match exif.get_field(*tag, In::PRIMARY) {
             Some(field) => {
-                println!(
-                    " {} - {} - {}",
-                    tag,
-                    field.ifd_num,
-                    field.display_value().with_unit(&exif)
-                );
-
                 let chars_to_trim: &[char] = &[' ', '"'];
                 let field_value = field
                     .display_value()
@@ -100,27 +93,25 @@ pub fn extract_img_info(path: &str) {
                     Tag::BodySerialNumber => {
                         image_info.camera_serial = field_value;
                     }
-                    _ => println!("{}", tag),
+                    _ => println!("Unmatched tag: {}", tag),
                 }
             }
             None => (),
         }
     }
-    let data = serde_json::to_string_pretty(&image_info).unwrap();
-    // println!("{}", data);
-    write_to_file(data, output_file).unwrap();
+    Ok(image_info)
 }
 
-fn write_to_file(data: String, file_path: String) -> Result<(), ImagextractorError> {
+// write_to_file will write the data to specified file.
+pub(crate) fn write_to_file(data: String, file_path: String) -> Result<(), ImagextractorError> {
     let path = Path::new(file_path.as_str());
     let display = path.display();
 
-    // Open a file in write-only mode, returns `io::Result<File>`
     let mut out_file = match File::create(&path) {
         Err(why) => {
             eprintln!("couldn't create {}: {}", display, why);
             return Err(ImagextractorError::IOError(why));
-        },
+        }
         Ok(out_file) => out_file,
     };
 
@@ -128,16 +119,15 @@ fn write_to_file(data: String, file_path: String) -> Result<(), ImagextractorErr
         Err(why) => {
             eprintln!("couldn't write to {}: {}", display, why);
             Err(ImagextractorError::IOError(why))
-        },
-        Ok(_) =>  {
+        }
+        Ok(_) => {
             println!("successfully wrote to {}", display);
             Ok(())
-        },
+        }
     }
 }
 
-fn extract_file(image_name: String, image_info: ImageInfo) {}
-
+// system_time_to_date_time converts the SystemTime to DateTime<Utc>
 fn system_time_to_date_time(t: SystemTime) -> DateTime<Utc> {
     let (sec, nsec) = match t.duration_since(UNIX_EPOCH) {
         Ok(dur) => (dur.as_secs() as i64, dur.subsec_nanos()),
@@ -155,6 +145,7 @@ fn system_time_to_date_time(t: SystemTime) -> DateTime<Utc> {
     Utc.timestamp(sec, nsec)
 }
 
+// system_to_string converts the SystemTime to DateTime<Utc> and then outputs String using rfc3339 with nano second
 fn system_to_string(t: SystemTime) -> String {
     system_time_to_date_time(t).to_rfc3339_opts(SecondsFormat::Nanos, true)
 }
@@ -202,12 +193,7 @@ mod date_time_format {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{FixedOffset, SecondsFormat, Utc};
-    use std::error::Error;
-    use std::fs;
-    use std::fs::File;
-    use std::os::macos::fs::MetadataExt;
-    use std::path::Path;
+    use chrono::{SecondsFormat, Utc};
 
     #[test]
     fn datetime_parse() {
@@ -257,5 +243,19 @@ mod tests {
         let parsed_img: ImageInfo = serde_json::from_str(expect_img).unwrap();
         // dbg!(parsed_img);
         assert_eq!(parsed_img, img.clone())
+    }
+
+    #[test]
+    fn generate_json_filename() {
+        let cases = vec![
+            ("AB.jpeg", "AB.json"),
+            ("AB.NEW.jpeg", "AB.NEW.json"),
+            ("AB.jpg", "AB.json"),
+            ("AB.JPEG", "AB.json"),
+            ("AB.JPG", "AB.json"),
+        ];
+        for (filename, expected) in cases {
+            assert_eq!(generate_output_file(filename), expected);
+        }
     }
 }
